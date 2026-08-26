@@ -45,7 +45,7 @@ public class StreamMod implements ClientModInitializer {
                         int fps = Streamer.getCurrentFps();
                         int dropped = Streamer.getDroppedFrames();
                         client.player.sendMessage(
-                                new LiteralText("§e[Стрим] §fLIVE " + (dur / 60) + "м " + (dur % 60) + "с | "
+                                new LiteralText("§e[Стрим] §fLIVE" + (Recorder.isRecording() ? " + REC" : "") + " " + (dur / 60) + "м " + (dur % 60) + "с | "
                                         + fps + " FPS | Потеряно: " + dropped), true);
                     }
                 }
@@ -60,7 +60,7 @@ public class StreamMod implements ClientModInitializer {
             Streamer.stop();
             if (client.player != null) {
                 client.player.sendMessage(
-                        new LiteralText("§c[Стрим] Стрим остановлен"), true);
+                        new LiteralText("§c[Стрим] Стрим + запись остановлены"), true);
             }
         } else {
             if (!Streamer.findFfmpeg()) {

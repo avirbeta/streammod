@@ -197,6 +197,10 @@ public final class Streamer {
             System.out.println("[streammod] Стрим начата: " + StreamSettings.platform
                     + " | Аудио: " + (audioAvailable ? "да" : "нет")
                     + " | Битрейт: " + StreamSettings.videoBitrate + "k");
+
+            // автоматическая параллельная запись в файл
+            Recorder.start(width, height, audioAvailable ? audioDevice : null);
+
             return true;
 
         } catch (Exception e) {
@@ -210,6 +214,9 @@ public final class Streamer {
         if (!streaming) return;
         streaming = false;
         QUEUE.clear();
+
+        // останавливаем параллельную запись
+        Recorder.stop();
 
         long ms = System.currentTimeMillis() - startTimeMs;
         int sec = (int) (ms / 1000);
@@ -257,6 +264,9 @@ public final class Streamer {
         if (!QUEUE.offer(frame)) {
             droppedFrames.incrementAndGet();
         }
+
+        // параллельная запись в файл
+        Recorder.grabFrame(width, height, pixelBuffer);
     }
 
     public static String findMonitorSourceCached() {
@@ -304,7 +314,7 @@ public final class Streamer {
         }
     }
 
-    private static String findFfmpegPath() {
+    public static String findFfmpegPath() {
         try {
             ProcessBuilder pb = new ProcessBuilder("which", "ffmpeg");
             pb.redirectErrorStream(true);
