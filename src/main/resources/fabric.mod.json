@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "streammod",
+  "version": "${version}",
+  "name": "Stream Mod",
+  "description": "Стриминг Minecraft на Twitch, YouTube и другие платформы через RTMP. Нажми J для настроек, K для старта/стопа.",
+  "authors": ["vizor"],
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.vizor.streammod.StreamMod"]
+  },
+  "mixins": [
+    "streammod.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.11.0",
+    "fabric": "*",
+    "minecraft": "~1.16.5"
+  }
+}

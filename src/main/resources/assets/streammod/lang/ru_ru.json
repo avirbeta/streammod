@@ -1,0 +1,15 @@
+{
+  "key.streammod.toggle": "Стриминг (старт/стоп)",
+  "key.streammod.settings": "Настройки стрима",
+  "category.streammod": "Стриминг",
+  "gui.streammod.title": "Настройки стрима",
+  "gui.streammod.done": "Готово",
+  "gui.streammod.twitch": "Twitch",
+  "gui.streammod.youtube": "YouTube",
+  "gui.streammod.vkplay": "VK Play Live",
+  "gui.streammod.rutube": "Rutube",
+  "gui.streammod.trovo": "Trovo",
+  "gui.streammod.goodgame": "GoodGame",
+  "gui.streammod.kick": "Kick",
+  "gui.streammod.custom": "Свой RTMP URL"
+}
