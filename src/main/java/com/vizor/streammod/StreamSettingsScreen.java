@@ -120,7 +120,7 @@ public class StreamSettingsScreen extends Screen {
             int sent = Streamer.getSentFrames();
             int dropped = Streamer.getDroppedFrames();
             this.addButton(new ButtonWidget(cx - 130, y, 260, 20,
-                    new LiteralText("LIVE" + (Recorder.isRecording() ? " + REC" : "") + " " + (dur / 60) + "м " + (dur % 60) + "с | "
+                    new LiteralText("LIVE " + (dur / 60) + "м " + (dur % 60) + "с | "
                             + fps + " FPS | " + sent + " кадров | " + dropped + " потеряно"), b -> {}));
             y += 26;
             this.addButton(new ButtonWidget(cx - 130, y, 260, 20,
