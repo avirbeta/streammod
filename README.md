@@ -2,6 +2,17 @@
 
 Стримит весь экран Minecraft (интерфейс, инвентарь, HUD, чат) + звук из игры на 7 платформ и любой RTMP-сервер.
 
+## Что нового в 1.1.0
+
+- В репозиторий добавлен `gradle-wrapper.jar` — проект снова собирается через `./gradlew`.
+- Устранён краш при открытии настроек: в `init()` рисовался текст с `null` MatrixStack.
+- Исправлена гонка старта: `streaming` выставлялся после запуска pipe-потока, из-за чего стрим мог сразу завершиться.
+- FFmpeg ищется без `which` (работает на Windows), с поддержкой `FFMPEG_PATH`.
+- Буферы кадров переиспользуются — меньше нагрузки на GC при 60 FPS.
+- Аккуратная остановка FFmpeg и корректная длительность после стопа.
+- Настройка `audioDevice` из конфига теперь реально используется.
+- Добавлены CI-сборка и MIT-лицензия.
+
 ## Горячие клавиши
 
 | Клавиша | Действие |
@@ -42,7 +53,7 @@
    - **Linux**: `sudo apt install ffmpeg`
    - **Windows**: скачай с [ffmpeg.org](https://ffmpeg.org/download.html), добавь в PATH
    - **Mac**: `brew install ffmpeg`
-3. Положи `streammod-fabric-1.16.5-1.0.0.jar` + [Fabric API](https://modrinth.com/mod/fabric-api) в `mods/`
+3. Положи `streammod-fabric-1.16.5-1.1.0.jar` + [Fabric API](https://modrinth.com/mod/fabric-api) в `mods/`
 4. Запусти Minecraft
 
 ## Настройка
@@ -80,6 +91,16 @@
 - Java 8+
 - FFmpeg (обязательно)
 
+## Сборка
+
+Требуется JDK 17, Gradle 8.10 (wrapper в комплекте), Fabric Loom 1.8.13.
+
+```bash
+./gradlew build
+```
+
+Готовый мод: `build/libs/streammod-fabric-1.16.5-1.1.0.jar`.
+
 ## Лицензия
 
-VizorVerze
+MIT — см. [LICENSE](LICENSE).

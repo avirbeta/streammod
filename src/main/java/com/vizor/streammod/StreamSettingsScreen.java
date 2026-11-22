@@ -28,7 +28,6 @@ public class StreamSettingsScreen extends Screen {
         int y = 24;
 
         // название стрима
-        this.textRenderer.drawWithShadow(null, "Название стрима:", cx - 130, y, 0xAAAAAA);
         y += 10;
         titleField = new TextFieldWidget(this.textRenderer, cx - 130, y, 260, 18,
                 new LiteralText("Title"));
@@ -38,7 +37,6 @@ public class StreamSettingsScreen extends Screen {
         y += 24;
 
         // описание стрима
-        this.textRenderer.drawWithShadow(null, "Описание:", cx - 130, y, 0xAAAAAA);
         y += 10;
         descField = new TextFieldWidget(this.textRenderer, cx - 130, y, 260, 18,
                 new LiteralText("Description"));
@@ -161,10 +159,10 @@ public class StreamSettingsScreen extends Screen {
                 if (client.player != null) {
                     if (ok) {
                         client.player.sendMessage(
-                                new LiteralText("a[Стрим] fСтрим начата" + audio + " (K для стопа)"), true);
+                                new LiteralText("§a[Стрим] §fСтрим начата" + audio + " (K для стопа)"), true);
                     } else {
                         client.player.sendMessage(
-                                new LiteralText("c[Стрим] Ошибка запуска"), true);
+                                new LiteralText("§c[Стрим] Ошибка запуска"), true);
                     }
                 }
                 if (client.currentScreen instanceof StreamSettingsScreen) {

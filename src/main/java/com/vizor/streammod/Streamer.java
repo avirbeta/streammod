@@ -1,6 +1,11 @@
 package com.vizor.streammod;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -17,19 +22,22 @@ public final class Streamer {
     private static boolean audioAvailable = false;
     private static String cachedMonitorSource = null;
     private static long monitorCacheTime = 0;
+    private static volatile String ffmpegPathCache = null;
 
     private static int streamWidth;
     private static int streamHeight;
     private static long startTimeMs;
+    private static volatile long lastDurationMs = 0L;
 
     private static final BlockingQueue<byte[]> QUEUE = new ArrayBlockingQueue<>(60);
+    private static final BlockingQueue<byte[]> FREE = new ArrayBlockingQueue<>(60);
     public static final AtomicInteger droppedFrames = new AtomicInteger(0);
     public static final AtomicInteger sentFrames = new AtomicInteger(0);
     private static volatile int currentFps = 0;
     private static long fpsCounterTime = 0;
     private static int fpsFrameCount = 0;
 
-    // оптимизация: throttle — не больше 1 кадра в 16мс (~60fps cap)
+    // throttle — не больше 1 кадра в 16мс (~60fps cap)
     private static volatile long lastGrabTimeMs = 0;
     private static final long MIN_FRAME_INTERVAL_MS = 16;
 
@@ -49,7 +57,11 @@ public final class Streamer {
     }
 
     public static long getDurationMs() {
-        return streaming ? System.currentTimeMillis() - startTimeMs : 0;
+        return streaming ? System.currentTimeMillis() - startTimeMs : lastDurationMs;
+    }
+
+    public static long getLastDurationMs() {
+        return lastDurationMs;
     }
 
     public static int getCurrentFps() {
@@ -70,85 +82,93 @@ public final class Streamer {
 
     public static synchronized boolean start(int width, int height) {
         if (streaming) return false;
-        if (!findFfmpeg()) return false;
-        if (StreamSettings.streamKey.isEmpty()) return false;
+        if (width <= 0 || height <= 0) return false;
+        if (StreamSettings.streamKey == null || StreamSettings.streamKey.isEmpty()) return false;
+
+        String ffmpegPath = findFfmpegPath();
+        if (ffmpegPath == null) return false;
 
         streamWidth = width;
         streamHeight = height;
-        audioAvailable = false;
         droppedFrames.set(0);
         sentFrames.set(0);
+        lastDurationMs = 0L;
+        lastGrabTimeMs = 0L;
         fpsCounterTime = System.currentTimeMillis();
         fpsFrameCount = 0;
         QUEUE.clear();
+        FREE.clear();
 
         int outW = width;
         int outH = height;
-        if (!"original".equals(StreamSettings.resolution)) {
-            if ("720p".equals(StreamSettings.resolution)) {
-                outW = 1280;
-                outH = 720;
-            } else if ("480p".equals(StreamSettings.resolution)) {
-                outW = 854;
-                outH = 480;
-            }
+        if ("720p".equals(StreamSettings.resolution)) {
+            outW = 1280;
+            outH = 720;
+        } else if ("480p".equals(StreamSettings.resolution)) {
+            outW = 854;
+            outH = 480;
         }
 
-        String audioDevice = findMonitorSourceCached();
-        audioAvailable = audioDevice != null;
+        String configuredAudio = StreamSettings.audioDevice;
+        String audioDevice;
+        if (configuredAudio == null || configuredAudio.isEmpty() || "auto".equalsIgnoreCase(configuredAudio)) {
+            audioDevice = findMonitorSourceCached();
+        } else {
+            audioDevice = configuredAudio;
+        }
+        audioAvailable = audioDevice != null && !audioDevice.trim().isEmpty();
 
         try {
-            String ffmpegPath = findFfmpegPath();
             String[] cmd;
             if (audioAvailable) {
                 cmd = new String[]{
-                    ffmpegPath, "-y", "-loglevel", "warning",
-                    "-f", "rawvideo", "-pix_fmt", "bgr0",
-                    "-s", width + "x" + height, "-r", "60", "-i", "-",
-                    "-f", "pulse", "-thread_queue_size", "512", "-i", audioDevice,
-                    "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-                    "-vf", "vflip,scale=" + outW + ":" + outH,
-                    "-b:v", StreamSettings.videoBitrate + "k",
-                    "-maxrate", StreamSettings.videoBitrate + "k",
-                    "-bufsize", (StreamSettings.videoBitrate * 2) + "k",
-                    "-pix_fmt", "yuv420p", "-g", "60",
-                    "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
-                    "-map", "0:v:0", "-map", "1:a:0",
-                    "-shortest",
-                    "-f", "flv",
-                    StreamSettings.getFullUrl()
+                        ffmpegPath, "-y", "-loglevel", "warning",
+                        "-f", "rawvideo", "-pix_fmt", "bgr0",
+                        "-s", width + "x" + height, "-r", "60", "-i", "-",
+                        "-f", "pulse", "-thread_queue_size", "512", "-i", audioDevice,
+                        "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+                        "-vf", "vflip,scale=" + outW + ":" + outH,
+                        "-b:v", StreamSettings.videoBitrate + "k",
+                        "-maxrate", StreamSettings.videoBitrate + "k",
+                        "-bufsize", (StreamSettings.videoBitrate * 2) + "k",
+                        "-pix_fmt", "yuv420p", "-g", "60",
+                        "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+                        "-map", "0:v:0", "-map", "1:a:0",
+                        "-shortest",
+                        "-f", "flv",
+                        StreamSettings.getFullUrl()
                 };
             } else {
                 cmd = new String[]{
-                    ffmpegPath, "-y", "-loglevel", "warning",
-                    "-f", "rawvideo", "-pix_fmt", "bgr0",
-                    "-s", width + "x" + height, "-r", "60", "-i", "-",
-                    "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-                    "-vf", "vflip,scale=" + outW + ":" + outH,
-                    "-b:v", StreamSettings.videoBitrate + "k",
-                    "-maxrate", StreamSettings.videoBitrate + "k",
-                    "-bufsize", (StreamSettings.videoBitrate * 2) + "k",
-                    "-pix_fmt", "yuv420p", "-g", "60",
-                    "-f", "flv",
-                    StreamSettings.getFullUrl()
+                        ffmpegPath, "-y", "-loglevel", "warning",
+                        "-f", "rawvideo", "-pix_fmt", "bgr0",
+                        "-s", width + "x" + height, "-r", "60", "-i", "-",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+                        "-vf", "vflip,scale=" + outW + ":" + outH,
+                        "-b:v", StreamSettings.videoBitrate + "k",
+                        "-maxrate", StreamSettings.videoBitrate + "k",
+                        "-bufsize", (StreamSettings.videoBitrate * 2) + "k",
+                        "-pix_fmt", "yuv420p", "-g", "60",
+                        "-f", "flv",
+                        StreamSettings.getFullUrl()
                 };
             }
 
-            ProcessBuilder pb = new ProcessBuilder(cmd);
-            pb.redirectErrorStream(false);
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
             ffmpeg = p;
             ffmpegIn = p.getOutputStream();
             ffmpegAlive = true;
 
-            // поток для чтения ошибок FFmpeg
+            // streaming=true ДО старта pipe-потока, иначе while (streaming) сразу завершится.
+            streaming = true;
+            startTimeMs = System.currentTimeMillis();
+
             monitorThread = new Thread(() -> {
                 try {
-                    InputStream err = p.getInputStream();
+                    InputStream out = p.getInputStream();
                     byte[] buf = new byte[2048];
                     int read;
-                    while ((read = err.read(buf)) != -1) {
+                    while ((read = out.read(buf)) != -1) {
                         String msg = new String(buf, 0, read).trim();
                         if (!msg.isEmpty()) {
                             System.err.println("[streammod] FFmpeg: " + msg);
@@ -156,80 +176,104 @@ public final class Streamer {
                     }
                 } catch (IOException ignored) {
                 }
-            }, "ffmpeg-monitor");
+            }, "streammod-ffmpeg-log");
             monitorThread.setDaemon(true);
             monitorThread.start();
 
-            // pipe thread — пишет кадры в stdin FFmpeg
             pipeThread = new Thread(() -> {
                 try {
-                    while (streaming) {
-                        byte[] frame = QUEUE.poll(500, TimeUnit.MILLISECONDS);
-                        if (frame != null) {
-                            try {
-                                ffmpegIn.write(frame);
-                                ffmpegIn.flush();
-                                sentFrames.incrementAndGet();
-                            } catch (IOException e) {
-                                System.err.println("[streammod] Pipe write error: " + e.getMessage());
-                                break;
-                            }
+                    while (true) {
+                        byte[] frame = QUEUE.poll(200, TimeUnit.MILLISECONDS);
+                        if (frame == null) {
+                            if (!streaming) break;
+                            continue;
+                        }
+                        try {
+                            ffmpegIn.write(frame);
+                            ffmpegIn.flush();
+                            sentFrames.incrementAndGet();
+                        } catch (IOException e) {
+                            System.err.println("[streammod] Pipe write error: " + e.getMessage());
+                            break;
+                        } finally {
+                            FREE.offer(frame);
                         }
                     }
                 } catch (InterruptedException ignored) {
                 }
-                // закрываем FFmpeg
                 try {
                     if (ffmpegIn != null) ffmpegIn.close();
                 } catch (IOException ignored) {
                 }
                 try {
-                    if (p != null) p.waitFor();
+                    p.waitFor();
                 } catch (InterruptedException ignored) {
                 }
                 ffmpegAlive = false;
-            }, "ffmpeg-pipe");
+                streaming = false;
+            }, "streammod-ffmpeg-pipe");
             pipeThread.setDaemon(true);
             pipeThread.start();
 
-            streaming = true;
-            startTimeMs = System.currentTimeMillis();
-            System.out.println("[streammod] Стрим начата: " + StreamSettings.platform
+            System.out.println("[streammod] Стрим начат: " + StreamSettings.platform
                     + " | Аудио: " + (audioAvailable ? "да" : "нет")
                     + " | Битрейт: " + StreamSettings.videoBitrate + "k");
             return true;
 
         } catch (Exception e) {
             System.err.println("[streammod] Ошибка запуска FFmpeg: " + e);
-            stop();
+            streaming = false;
+            cleanup();
             return false;
         }
     }
 
     public static synchronized void stop() {
-        if (!streaming) return;
+        if (!streaming) {
+            cleanup();
+            return;
+        }
+        lastDurationMs = System.currentTimeMillis() - startTimeMs;
         streaming = false;
         QUEUE.clear();
 
-        long ms = System.currentTimeMillis() - startTimeMs;
-        int sec = (int) (ms / 1000);
-        int min = sec / 60;
-        sec = sec % 60;
-        int sent = sentFrames.get();
-        int dropped = droppedFrames.get();
-        System.out.println("[streammod] Стрим остановлен. " + min + "м " + sec + "с | Кадров: " + sent + " | Потеряно: " + dropped);
-
         try {
-            if (ffmpegIn != null) ffmpegIn.close();
+            if (pipeThread != null) {
+                pipeThread.join(3000);
+            }
+        } catch (InterruptedException ignored) {
+        }
+
+        cleanup();
+
+        long sec = lastDurationMs / 1000L;
+        System.out.println("[streammod] Стрим остановлен. " + (sec / 60) + "м " + (sec % 60) + "с | Кадров: "
+                + sentFrames.get() + " | Потеряно: " + droppedFrames.get());
+    }
+
+    private static void cleanup() {
+        try {
+            if (ffmpegIn != null) {
+                ffmpegIn.close();
+            }
         } catch (IOException ignored) {
         }
         try {
-            if (ffmpeg != null) ffmpeg.destroy();
+            if (ffmpeg != null && !ffmpeg.waitFor(5, TimeUnit.SECONDS)) {
+                ffmpeg.destroy();
+                if (!ffmpeg.waitFor(2, TimeUnit.SECONDS)) {
+                    ffmpeg.destroyForcibly();
+                }
+            }
         } catch (Exception ignored) {
         }
         ffmpeg = null;
         ffmpegIn = null;
+        pipeThread = null;
+        monitorThread = null;
         ffmpegAlive = false;
+        QUEUE.clear();
+        FREE.clear();
     }
 
     /** Вызывается из render thread. Читает пиксели и кладёт в очередь. */
@@ -242,11 +286,13 @@ public final class Streamer {
         lastGrabTimeMs = now;
 
         int size = width * height * 4;
-        byte[] frame = new byte[size];
+        byte[] frame = FREE.poll();
+        if (frame == null || frame.length != size) {
+            frame = new byte[size];
+        }
         pixelBuffer.position(0);
         pixelBuffer.get(frame);
 
-        // FPS counter
         fpsFrameCount++;
         if (now - fpsCounterTime >= 1000) {
             currentFps = fpsFrameCount;
@@ -256,6 +302,7 @@ public final class Streamer {
 
         if (!QUEUE.offer(frame)) {
             droppedFrames.incrementAndGet();
+            FREE.offer(frame);
         }
     }
 
@@ -274,8 +321,7 @@ public final class Streamer {
             ProcessBuilder pb = new ProcessBuilder("pactl", "list", "short", "sources");
             pb.redirectErrorStream(true);
             Process p = pb.start();
-            java.io.BufferedReader r = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(p.getInputStream()));
+            BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
             String line;
             while ((line = r.readLine()) != null) {
                 if (line.contains(".monitor")) {
@@ -293,31 +339,36 @@ public final class Streamer {
     }
 
     public static boolean findFfmpeg() {
-        try {
-            ProcessBuilder pb = new ProcessBuilder("which", "ffmpeg");
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
-            int exit = p.waitFor();
-            return exit == 0;
-        } catch (Exception e) {
-            return false;
-        }
+        return findFfmpegPath() != null;
     }
 
     private static String findFfmpegPath() {
-        try {
-            ProcessBuilder pb = new ProcessBuilder("which", "ffmpeg");
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
-            java.io.BufferedReader r = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(p.getInputStream()));
-            String line = r.readLine();
-            p.waitFor();
-            if (line != null && !line.trim().isEmpty()) {
-                return line.trim();
-            }
-        } catch (Exception ignored) {
+        String cached = ffmpegPathCache;
+        if (cached != null) return cached;
+
+        String env = System.getenv("FFMPEG_PATH");
+        if (env != null && new File(env).canExecute()) {
+            ffmpegPathCache = env;
+            return env;
         }
-        return "ffmpeg";
+
+        String[] candidates = {
+                "ffmpeg",
+                "/usr/bin/ffmpeg",
+                "/usr/local/bin/ffmpeg",
+                "C:\\ffmpeg\\bin\\ffmpeg.exe"
+        };
+        for (String candidate : candidates) {
+            try {
+                Process p = new ProcessBuilder(candidate, "-version").start();
+                if (p.waitFor(1000, TimeUnit.MILLISECONDS) && p.exitValue() == 0) {
+                    ffmpegPathCache = candidate;
+                    return candidate;
+                }
+                p.destroyForcibly();
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
     }
 }

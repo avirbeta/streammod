@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.nio.ByteBuffer;
 
 @Mixin(GameRenderer.class)
-public class WorldRendererMixin {
+public class GameRendererMixin {
 
     private static ByteBuffer streammod$pixelBuffer;
     private static int streammod$lastW;

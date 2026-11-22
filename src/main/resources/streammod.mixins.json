@@ -3,7 +3,7 @@
   "package": "com.vizor.streammod.mixin",
   "compatibilityLevel": "JAVA_8",
   "client": [
-    "WorldRendererMixin"
+    "GameRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1
