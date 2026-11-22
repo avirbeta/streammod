@@ -3,3 +3,5 @@ build/
 данные
 *.class
 *.jar
+
+!gradle/wrapper/gradle-wrapper.jar
